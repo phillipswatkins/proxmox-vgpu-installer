@@ -383,11 +383,11 @@ case $STEP in
             # Commands for new installation
             echo -e "${GREEN}[+]${NC} Making changes to APT for Proxmox version: ${RED}$major_version${NC}"
             case $major_version in
+                9)
+                    proxmox_repo="deb http://download.proxmox.com/debian/pve trixie pve-no-subscription"
+                    ;;
                 8)
                     proxmox_repo="deb http://download.proxmox.com/debian/pve bookworm pve-no-subscription"
-                    ;;
-                7)
-                    proxmox_repo="deb http://download.proxmox.com/debian/pve bullseye pve-no-subscription"
                     ;;
                 *)
                     echo -e "${RED}[!]${NC} Unsupported Proxmox version: ${YELLOW}$major_version${NC}"
@@ -395,10 +395,11 @@ case $STEP in
                     ;;
             esac
 
-            # Replace repository lines
-            replace_repo_lines "deb https://enterprise.proxmox.com/debian/pve bullseye pve-enterprise" "$proxmox_repo"
+           # Replace repository lines
             replace_repo_lines "deb https://enterprise.proxmox.com/debian/pve bookworm pve-enterprise" "$proxmox_repo"
-            replace_repo_lines "deb https://enterprise.proxmox.com/debian/ceph-quincy bookworm enterprise" "deb http://download.proxmox.com/debian/ceph-quincy bookworm no-subscription"
+            replace_repo_lines "deb https://enterprise.proxmox.com/debian/pve trixie pve-enterprise" "$proxmox_repo"
+			replace_repo_lines "deb https://enterprise.proxmox.com/debian/ceph-quincy bookworm enterprise" "deb http://download.proxmox.com/debian/ceph-quincy bookworm no-subscription"
+			replace_repo_lines "deb https://enterprise.proxmox.com/debian/ceph-reef trixie enterprise" "deb http://download.proxmox.com/debian/ceph-reef trixie no-subscription"
 
             # Check if Proxmox repository entry exists in /etc/apt/sources.list
             if ! grep -q "$proxmox_repo" /etc/apt/sources.list; then
@@ -406,7 +407,7 @@ case $STEP in
                 echo "$proxmox_repo" >> /etc/apt/sources.list
             fi
 
-            # # Comment Proxmox enterprise repository
+          # # Comment Proxmox enterprise repository
             # echo -e "${GREEN}[+]${NC} Commenting Proxmox enterprise repository"
             # sed -i 's/^/#/' /etc/apt/sources.list.d/pve-enterprise.list
 
@@ -416,7 +417,7 @@ case $STEP in
 
             # APT update/upgrade
             run_command "Running APT Update" "info" "apt update"
-
+            
             # Prompt the user for confirmation
             echo ""
             read -p "$(echo -e "${BLUE}[?]${NC} Do you want to proceed with APT Dist-Upgrade ? (y/n): ")" confirmation
@@ -430,40 +431,42 @@ case $STEP in
                 echo -e "${YELLOW}[-]${NC} Skipping APT Dist-Upgrade"
             fi          
 
-            # APT installing packages
+           # APT installing packages
             # Downgrade kernel and headers for Nvidia drivers to install successfully
-            # apt install proxmox-kernel-6.5 proxmox-headers-6.5
-            # used to be pve-headers, but that will use latest version (which is currently 6.8)
-            run_command "Installing packages" "info" "apt install -y git build-essential dkms proxmox-kernel-6.5 proxmox-headers-6.5 mdevctl megatools"
+            # apt install proxmox-kernel-6.14 proxmox-headers-6.14
+            # used to be pve-headers, but that will use latest version (which is currently 6.14)
+            run_command "Installing packages" "info" "apt install -y git build-essential dkms proxmox-kernel-$(uname -r) proxmox-headers-$(uname -r) mdevctl wget pve-nvidia-vgpu-helper"
 
-            # Pinning the kernel
-            kernel_version_compare() {
-                ver1=$1
-                ver2=$2
-                printf '%s\n' "$ver1" "$ver2" | sort -V -r | head -n 1
-            }
+            run_command "Setup pve-nvidia-vgpu-helper" "info" "echo y|pve-nvidia-vgpu-helper setup"
+			
+            ## Pinning the kernel
+            #kernel_version_compare() {
+            #    ver1=$1
+            #    ver2=$2
+            #    printf '%s\n' "$ver1" "$ver2" | sort -V -r | head -n 1
+            #}
 
-            # Get the kernel list and filter for 6.5 kernels
-            kernel_list=$(proxmox-boot-tool kernel list | grep "6.5")
+            ## Get the kernel list and filter for 6.5 kernels
+            #kernel_list=$(proxmox-boot-tool kernel list | grep "6.5")
 
-            # Check if any 6.5 kernels are available
-            if [[ -n "$kernel_list" ]]; then
-                # Extract the highest version
-                highest_version=""
-                while read -r line; do
-                    kernel_version=$(echo "$line" | awk '{print $1}')
-                    if [[ -z "$highest_version" ]]; then
-                        highest_version="$kernel_version"
-                    else
-                        highest_version=$(kernel_version_compare "$highest_version" "$kernel_version")
-                    fi
-                done <<< "$kernel_list"
+            ## Check if any 6.5 kernels are available
+            #if [[ -n "$kernel_list" ]]; then
+            #    # Extract the highest version
+            #    highest_version=""
+            #    while read -r line; do
+            #        kernel_version=$(echo "$line" | awk '{print $1}')
+            #        if [[ -z "$highest_version" ]]; then
+            #            highest_version="$kernel_version"
+            #        else
+            #            highest_version=$(kernel_version_compare "$highest_version" "$kernel_version")
+            #        fi
+            #    done <<< "$kernel_list"
 
-                # Pin the highest 6.5 kernel
-                run_command "Pinning kernel: $highest_version" "info" "proxmox-boot-tool kernel pin $highest_version"
-            else
-                echo -e "${RED}[!]${NC} No 6.5 kernels installed."
-            fi
+            #    # Pin the highest 6.5 kernel
+            #    run_command "Pinning kernel: $highest_version" "info" "proxmox-boot-tool kernel pin $highest_version"
+            # else
+            #    echo -e "${RED}[!]${NC} No 6.5 kernels installed."
+            # fi
 
             # Running NVIDIA GPU checks
             query_gpu_info() {
